@@ -59,3 +59,18 @@ def test_v06_audit_record_and_cross_site_guard():
     assert client.get('/api/auth/audit',params={'limit':201}).status_code==422
     blocked=client.post('/api/__audit_probe_404',headers={'sec-fetch-site':'cross-site'})
     assert blocked.status_code==403
+
+def test_restore_revision_preserves_history_and_updates_full_text_index():
+    document=client.post('/api/items',json={'title':'Demo doc','body':'Original spaceship'}).json()
+    ident=document['id']
+    assert client.put(f'/api/items/{ident}',json={'title':'Demo doc','body':'Replacement ocean'}).status_code==200
+    history=client.get(f'/api/documents/{ident}/history').json()
+    snapshot=next(r for r in history if r['body']=='Original spaceship')
+    restored=client.post(f"/api/documents/{ident}/restore/{snapshot['id']}")
+    assert restored.status_code==200
+    assert restored.json()['body']=='Original spaceship'
+    assert any(x['id']==ident for x in client.get('/api/search',params={'q':'spaceship'}).json())
+    assert not any(x['id']==ident for x in client.get('/api/search',params={'q':'ocean'}).json())
+    after=client.get(f'/api/documents/{ident}/history').json()
+    assert any(row['body']=='Replacement ocean' for row in after)
+    assert client.post(f'/api/documents/{ident}/restore/999999').status_code==404
