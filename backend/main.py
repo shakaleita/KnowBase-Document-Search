@@ -103,5 +103,21 @@ def document_history(document_id:int):
             raise HTTPException(404,'Document not found')
         return rows(con.execute('SELECT * FROM document_revisions WHERE document_id=? ORDER BY id DESC',(document_id,)))
 
+@app.post('/api/documents/{document_id}/restore/{revision_id}')
+def restore_document(document_id:int,revision_id:int):
+    """Restore an earlier document snapshot and preserve the current version."""
+    with db() as con:
+        con.execute('BEGIN IMMEDIATE')
+        current=con.execute('SELECT * FROM documents WHERE id=?',(document_id,)).fetchone()
+        if not current:raise HTTPException(404,'Document not found')
+        snapshot=con.execute('SELECT * FROM document_revisions WHERE id=? AND document_id=?',
+                             (revision_id,document_id)).fetchone()
+        if not snapshot:raise HTTPException(404,'Revision not found')
+        con.execute('INSERT INTO document_revisions(document_id,title,body,source,category) VALUES(?,?,?,?,?)',
+                    (document_id,current['title'],current['body'],current['source'],current['category']))
+        con.execute('UPDATE documents SET title=?,body=?,source=?,category=? WHERE id=?',
+                    (snapshot['title'],snapshot['body'],snapshot['source'],snapshot['category'],document_id))
+        return dict(con.execute('SELECT * FROM documents WHERE id=?',(document_id,)).fetchone())
+
 from security import install_auth
 install_auth(app,DB)
