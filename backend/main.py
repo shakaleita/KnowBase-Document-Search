@@ -75,6 +75,10 @@ def edit_document(document_id: int, doc: Document):
     if not doc.title.strip() or not doc.body.strip():
         raise HTTPException(422,'Document requires title and body')
     with db() as con:
+        prior=con.execute('SELECT * FROM documents WHERE id=?',(document_id,)).fetchone()
+        if not prior:raise HTTPException(404,'Document not found')
+        con.execute('INSERT INTO document_revisions(document_id,title,body,source,category) VALUES(?,?,?,?,?)',
+                    (document_id,prior['title'],prior['body'],prior['source'],prior['category']))
         cur=con.execute('UPDATE documents SET title=?,body=?,source=?,category=? WHERE id=?',
            (doc.title,doc.body,doc.source,doc.category,document_id))
         if not cur.rowcount:
@@ -87,3 +91,17 @@ def delete_document(document_id: int):
         if not con.execute('DELETE FROM documents WHERE id=?',(document_id,)).rowcount:
             raise HTTPException(404,'Document not found')
 
+
+setup("""CREATE TABLE IF NOT EXISTS document_revisions(
+ id INTEGER PRIMARY KEY,document_id INTEGER NOT NULL,title TEXT NOT NULL,body TEXT NOT NULL,
+ source TEXT NOT NULL,category TEXT NOT NULL,changed_at TEXT DEFAULT CURRENT_TIMESTAMP);""")
+
+@app.get('/api/documents/{document_id}/history')
+def document_history(document_id:int):
+    with db() as con:
+        if not con.execute('SELECT 1 FROM documents WHERE id=?',(document_id,)).fetchone():
+            raise HTTPException(404,'Document not found')
+        return rows(con.execute('SELECT * FROM document_revisions WHERE document_id=? ORDER BY id DESC',(document_id,)))
+
+from security import install_auth
+install_auth(app,DB)
